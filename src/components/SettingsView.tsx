@@ -6,13 +6,35 @@ import { useAuth } from '../context/AuthContext'
 import TaskEditor from './TaskEditor'
 import type { TaskDef } from '../lib/types'
 
-const FREQ_LABEL: Record<TaskDef['frequency'], string> = { daily: 'Diaria', weekly: 'Semanal', monthly: 'Mensual' }
+const FREQ_META: Record<TaskDef['frequency'], { label: string; icon: string; color: string }> = {
+  daily: { label: 'Diaria', icon: '🔁', color: 'var(--color-freq-daily)' },
+  weekly: { label: 'Semanal', icon: '📅', color: 'var(--color-freq-weekly)' },
+  monthly: { label: 'Mensual', icon: '🗓️', color: 'var(--color-freq-monthly)' },
+}
+const FREQ_FILTERS = ['all', 'daily', 'weekly', 'monthly'] as const
+type FreqFilter = (typeof FREQ_FILTERS)[number]
+const ACTIVE_FILTERS = ['all', 'active', 'paused'] as const
+type ActiveFilter = (typeof ACTIVE_FILTERS)[number]
+
 const DOW_LABEL = ['dom', 'lun', 'mar', 'mié', 'jue', 'vie', 'sáb']
 
 function fixedDayLabel(t: TaskDef): string | null {
   if (t.fixedDay === undefined || t.fixedDay === null) return null
-  if (t.fixedDay === 'weekend') return '🗓️ finde'
-  return `🗓️ ${DOW_LABEL[t.fixedDay]}`
+  if (t.fixedDay === 'weekend') return '📌 finde'
+  return `📌 ${DOW_LABEL[t.fixedDay]}`
+}
+
+function FreqBadge({ frequency }: { frequency: TaskDef['frequency'] }) {
+  const meta = FREQ_META[frequency]
+  return (
+    <span
+      className="inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-full shrink-0"
+      style={{ background: meta.color, color: '#0b1120' }}
+    >
+      <span aria-hidden>{meta.icon}</span>
+      {meta.label}
+    </span>
+  )
 }
 
 export default function SettingsView() {
@@ -24,17 +46,43 @@ export default function SettingsView() {
   const [busy, setBusy] = useState(false)
   const [savedMsg, setSavedMsg] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
+  const [filterRoom, setFilterRoom] = useState<string>('all')
+  const [filterFreq, setFilterFreq] = useState<FreqFilter>('all')
+  const [filterActiveState, setFilterActiveState] = useState<ActiveFilter>('all')
+  const [filterText, setFilterText] = useState('')
+
+  const knownRooms = useMemo(() => [...new Set(tasks.map((t) => t.room))], [tasks])
+
+  const filtersActive =
+    filterRoom !== 'all' || filterFreq !== 'all' || filterActiveState !== 'all' || filterText.trim() !== ''
+
+  function clearFilters() {
+    setFilterRoom('all')
+    setFilterFreq('all')
+    setFilterActiveState('all')
+    setFilterText('')
+  }
+
+  const filteredTasks = useMemo(() => {
+    const q = filterText.trim().toLowerCase()
+    return tasks.filter((t) => {
+      if (filterRoom !== 'all' && t.room !== filterRoom) return false
+      if (filterFreq !== 'all' && t.frequency !== filterFreq) return false
+      if (filterActiveState === 'active' && !t.active) return false
+      if (filterActiveState === 'paused' && t.active) return false
+      if (q && !t.title.toLowerCase().includes(q) && !(t.detail ?? '').toLowerCase().includes(q)) return false
+      return true
+    })
+  }, [tasks, filterRoom, filterFreq, filterActiveState, filterText])
 
   const byRoom = useMemo(() => {
     const map = new Map<string, TaskDef[]>()
-    for (const t of tasks) {
+    for (const t of filteredTasks) {
       if (!map.has(t.room)) map.set(t.room, [])
       map.get(t.room)!.push(t)
     }
     return map
-  }, [tasks])
-
-  const knownRooms = useMemo(() => [...new Set(tasks.map((t) => t.room))], [tasks])
+  }, [filteredTasks])
 
   async function handleSave(task: TaskDef) {
     setBusy(true)
@@ -171,6 +219,81 @@ export default function SettingsView() {
         </div>
       )}
 
+      <section className="mb-4 flex flex-col gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <input
+            type="text"
+            value={filterText}
+            onChange={(e) => setFilterText(e.target.value)}
+            placeholder="🔍 Buscar tarea…"
+            className="flex-1 min-w-[140px] rounded-lg px-3 py-1.5 text-sm text-[color:var(--color-text)]"
+            style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)' }}
+          />
+          <select
+            value={filterRoom}
+            onChange={(e) => setFilterRoom(e.target.value)}
+            className="rounded-lg px-2 py-1.5 text-sm text-[color:var(--color-text)]"
+            style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)' }}
+          >
+            <option value="all">Todas las salas</option>
+            {knownRooms.map((r) => (
+              <option key={r} value={r}>
+                {ROOMS[r]?.emoji ?? '🏷️'} {r}
+              </option>
+            ))}
+          </select>
+          {filtersActive && (
+            <button onClick={clearFilters} className="text-xs underline text-[color:var(--color-text-dim)] shrink-0">
+              Limpiar filtros
+            </button>
+          )}
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex gap-1">
+            {FREQ_FILTERS.map((f) => (
+              <button
+                key={f}
+                onClick={() => setFilterFreq(f)}
+                className="text-[11px] px-2.5 py-1.5 rounded-full font-medium inline-flex items-center gap-1"
+                style={{
+                  background: filterFreq === f ? (f === 'all' ? 'var(--color-accent)' : FREQ_META[f].color) : 'var(--color-surface-2)',
+                  color: filterFreq === f ? '#0b1120' : 'var(--color-text-dim)',
+                }}
+              >
+                {f === 'all' ? 'Todas' : <>{FREQ_META[f].icon} {FREQ_META[f].label}</>}
+              </button>
+            ))}
+          </div>
+          <div className="flex gap-1">
+            {ACTIVE_FILTERS.map((s) => (
+              <button
+                key={s}
+                onClick={() => setFilterActiveState(s)}
+                className="text-[11px] px-2.5 py-1.5 rounded-full font-medium"
+                style={{
+                  background: filterActiveState === s ? 'var(--color-accent)' : 'var(--color-surface-2)',
+                  color: filterActiveState === s ? '#0b1120' : 'var(--color-text-dim)',
+                }}
+              >
+                {s === 'all' ? 'Todas' : s === 'active' ? 'Activas' : 'Pausadas'}
+              </button>
+            ))}
+          </div>
+          {filtersActive && (
+            <span className="text-[11px] text-[color:var(--color-text-dim)]">
+              {filteredTasks.length} de {tasks.length} tareas
+            </span>
+          )}
+        </div>
+      </section>
+
+      {filteredTasks.length === 0 && (
+        <p className="text-sm text-[color:var(--color-text-dim)] text-center py-10">
+          No hay tareas que coincidan con los filtros.
+        </p>
+      )}
+
       {[...byRoom.entries()].map(([room, roomTasks]) => (
         <section key={room} className="mb-5">
           <h3 className="text-sm font-semibold mb-2">{ROOMS[room]?.emoji ?? '🏷️'} {room}</h3>
@@ -219,8 +342,8 @@ export default function SettingsView() {
                     </div>
                   </div>
                   {t.detail && <p className="text-[11px] text-[color:var(--color-text-dim)]">{t.detail}</p>}
-                  <div className="flex items-center gap-3 text-[11px] text-[color:var(--color-text-dim)] flex-wrap">
-                    <span>{FREQ_LABEL[t.frequency]}</span>
+                  <div className="flex items-center gap-2 text-[11px] text-[color:var(--color-text-dim)] flex-wrap">
+                    <FreqBadge frequency={t.frequency} />
                     {t.frequency === 'monthly' && (t.intervalMonths ?? 1) > 1 && <span>cada {t.intervalMonths} meses</span>}
                     {t.timesPerPeriod > 1 && <span>×{t.timesPerPeriod}/periodo</span>}
                     <span>{t.minutes} min</span>

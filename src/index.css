@@ -13,6 +13,9 @@
   --color-accent: #199e70;
   --color-warn: #c98500;
   --color-danger: #e66767;
+  --color-freq-daily: #e0a339;
+  --color-freq-weekly: #22b8cf;
+  --color-freq-monthly: #a78bfa;
 }
 
 html, body, #root {

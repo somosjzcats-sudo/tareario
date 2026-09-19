@@ -26,6 +26,21 @@ function weekdayPreference(seed: number): number[] {
   return [...base.slice(rot), ...base.slice(0, rot)]
 }
 
+// lunes..domingo, en términos de getDay() (0=domingo..6=sábado)
+const WEEK_ORDER_FROM_MONDAY = [1, 2, 3, 4, 5, 6, 0]
+
+/** Elige `count` días de la semana repartidos de forma uniforme (p.ej. F2 =
+ * martes y viernes, no lunes y martes), en vez de agruparlos. `seed` rota el
+ * punto de partida para que no todas las tareas con el mismo `count` caigan
+ * siempre en los mismos días, sin romper el reparto uniforme. */
+function evenlySpacedDows(count: number, seed: number): number[] {
+  if (count <= 1) return []
+  const rotation = seed % WEEK_ORDER_FROM_MONDAY.length
+  const rotated = [...WEEK_ORDER_FROM_MONDAY.slice(rotation), ...WEEK_ORDER_FROM_MONDAY.slice(0, rotation)]
+  const slotIndexes = Array.from({ length: count }, (_, i) => Math.round((i + 0.5) * (7 / count)) % 7)
+  return slotIndexes.map((i) => rotated[i])
+}
+
 export function mondayOf(date: Date) {
   return startOfWeek(date, { weekStartsOn: 1 })
 }
@@ -59,13 +74,12 @@ function pickDatesInWeek(weekStart: Date, count: number, seed: number, task: Tas
     const diff = (fixedDow - 1 + 7) % 7
     return [addDays(weekStart, diff)]
   }
-  const pref = weekdayPreference(seed)
-  const chosenDow = pref.slice(0, Math.max(count, 1))
-  const dates = chosenDow.map((dow) => {
+  const dows = count <= 1 ? [weekdayPreference(seed)[0]] : evenlySpacedDows(count, seed)
+  const dates = dows.map((dow) => {
     const diff = (dow - 1 + 7) % 7
     return addDays(weekStart, diff)
   })
-  return dates.sort((a, b) => a.getTime() - b.getTime()).slice(0, count)
+  return dates.sort((a, b) => a.getTime() - b.getTime())
 }
 
 function weekKeyOfDate(d: Date) {

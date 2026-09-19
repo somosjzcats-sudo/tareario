@@ -14,9 +14,9 @@ interface Props {
 }
 
 const FREQ_OPTIONS: { value: Frequency; label: string }[] = [
-  { value: 'daily', label: 'Diaria' },
-  { value: 'weekly', label: 'Semanal' },
-  { value: 'monthly', label: 'Mensual' },
+  { value: 'daily', label: '🔁 Diaria' },
+  { value: 'weekly', label: '📅 Semanal' },
+  { value: 'monthly', label: '🗓️ Mensual' },
 ]
 
 export default function TaskEditor({ task, knownRooms, onCancel, onSave, onDelete, externalError }: Props) {
