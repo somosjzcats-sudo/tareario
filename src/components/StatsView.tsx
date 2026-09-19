@@ -15,6 +15,24 @@ export default function StatsView() {
 
   const stats = useMemo(() => PEOPLE.map((p) => computeStats(statsOccurrences, tasksById, p, today)), [statsOccurrences, tasksById, today])
 
+  // "Hoy" es aparte del % de completadas a tiempo: ese % solo cuenta lo que
+  // ya venció (hecho o perdido), así que una tarea de hoy que todavía tiene
+  // margen no cuenta ni a favor ni en contra todavía. Mostramos las dos
+  // cosas por separado para que no parezca contradictorio (100% completadas
+  // pero con tareas de hoy aún sin marcar).
+  const todayCounts = useMemo(() => {
+    const result: Record<PersonId, { done: number; total: number }> = {
+      zaira: { done: 0, total: 0 },
+      jef: { done: 0, total: 0 },
+    }
+    for (const o of statsOccurrences) {
+      if (o.date !== today) continue
+      result[o.assignedTo].total += 1
+      if (o.status === 'done') result[o.assignedTo].done += 1
+    }
+    return result
+  }, [statsOccurrences, today])
+
   const missedBreakdown = useMemo(
     () => Object.fromEntries(PEOPLE.map((p) => [p, computeMissedBreakdown(statsOccurrences, tasksById, p)])) as Record<PersonId, ReturnType<typeof computeMissedBreakdown>>,
     [statsOccurrences, tasksById],
@@ -85,8 +103,30 @@ export default function StatsView() {
             <div key={s.person} className="rounded-xl border p-3" style={{ background: 'var(--color-surface)', borderColor: 'var(--color-border)' }}>
               <p className="text-xs font-semibold mb-1" style={{ color: p.color }}>{p.name}</p>
               <p className="text-2xl font-bold leading-none">{s.totalPoints}<span className="text-xs font-normal text-[color:var(--color-text-dim)]"> pts</span></p>
-              <p className="text-[11px] text-[color:var(--color-text-dim)] mt-1">🔥 racha: {s.currentStreak} días (mejor {s.bestStreak})</p>
-              <p className="text-[11px] text-[color:var(--color-text-dim)]">✅ {Math.round(s.completionRate * 100)}% completadas</p>
+
+              <div className="mt-2 mb-1">
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-[11px] text-[color:var(--color-text-dim)]">📆 hoy</span>
+                  <span className="text-[11px] text-[color:var(--color-text-dim)]">{todayCounts[s.person].done}/{todayCounts[s.person].total}</span>
+                </div>
+                <div className="h-1.5 rounded-full" style={{ background: 'var(--color-surface-2)' }}>
+                  <div
+                    className="h-full rounded-full transition-all"
+                    style={{
+                      width: `${todayCounts[s.person].total > 0 ? Math.round((todayCounts[s.person].done / todayCounts[s.person].total) * 100) : 100}%`,
+                      background: p.color,
+                    }}
+                  />
+                </div>
+              </div>
+
+              <p className="text-[11px] text-[color:var(--color-text-dim)]">🔥 racha: {s.currentStreak} días (mejor {s.bestStreak})</p>
+              <p
+                className="text-[11px] text-[color:var(--color-text-dim)]"
+                title="Solo cuenta lo que ya venció (hecho o perdido). Lo de hoy que todavía tiene margen no entra aquí hasta que se cumpla o se pase el plazo."
+              >
+                ✅ {Math.round(s.completionRate * 100)}% a tiempo (de lo ya vencido)
+              </p>
               <p className="text-[11px] text-[color:var(--color-text-dim)]">❌ {s.missed} perdidas</p>
               {badges.length > 0 && (
                 <div className="flex flex-wrap gap-1 mt-2">
