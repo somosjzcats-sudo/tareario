@@ -22,7 +22,7 @@ function Spinner() {
 export default function App() {
   const { me } = useProfile()
   const { error } = useData()
-  const { requiresLogin, loading: authLoading, session, authPerson } = useAuth()
+  const { requiresLogin, loading: authLoading, session, authPerson, signOut } = useAuth()
   const [tab, setTab] = useState<Tab>('hoy')
 
   if (requiresLogin) {
@@ -38,6 +38,17 @@ export default function App() {
             configuró Supabase que añada <code>person: "zaira"</code> o <code>person: "jef"</code> en los metadatos
             del usuario.
           </p>
+          <p className="text-xs text-[color:var(--color-text-dim)] max-w-sm">
+            Si ya lo has arreglado en Supabase, cierra sesión y vuelve a entrar — los metadatos solo se leen de
+            nuevo al iniciar sesión, no se actualizan solos mientras estás dentro.
+          </p>
+          <button
+            onClick={() => void signOut()}
+            className="mt-1 text-sm font-medium px-4 py-2 rounded-lg"
+            style={{ background: 'var(--color-surface-2)', color: 'var(--color-text)' }}
+          >
+            Cerrar sesión
+          </button>
         </div>
       )
     }

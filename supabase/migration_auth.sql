@@ -24,6 +24,16 @@ update tasks set fixed_day = 'weekend' where title = 'Cambiar sábanas' and room
 
 -- Marca a Zaira y Jef con su identidad en auth.users (persona: zaira | jef)
 -- una vez hayas creado sus cuentas desde Authentication > Users. Sustituye
--- los emails por los reales antes de ejecutar estas dos líneas:
--- update auth.users set raw_user_meta_data = raw_user_meta_data || '{"person":"zaira"}'::jsonb where email = 'EMAIL_DE_ZAIRA';
--- update auth.users set raw_user_meta_data = raw_user_meta_data || '{"person":"jef"}'::jsonb where email = 'EMAIL_DE_JEF';
+-- los emails por los reales antes de ejecutar estas dos líneas. Usamos
+-- coalesce(..., '{}'::jsonb) porque si raw_user_meta_data está a NULL,
+-- "NULL || '{...}'::jsonb" da NULL en vez de añadir el campo (y de paso
+-- borraría cualquier otro metadato que hubiera).
+-- update auth.users set raw_user_meta_data = coalesce(raw_user_meta_data, '{}'::jsonb) || '{"person":"zaira"}'::jsonb where email = 'EMAIL_DE_ZAIRA';
+-- update auth.users set raw_user_meta_data = coalesce(raw_user_meta_data, '{}'::jsonb) || '{"person":"jef"}'::jsonb where email = 'EMAIL_DE_JEF';
+--
+-- Después de ejecutarlo, comprueba que se ha guardado bien:
+-- select email, raw_user_meta_data from auth.users where email in ('EMAIL_DE_ZAIRA', 'EMAIL_DE_JEF');
+--
+-- IMPORTANTE: si ya habíais iniciado sesión en la app antes de ejecutar
+-- esto, tenéis que cerrar sesión y volver a entrar — los metadatos de la
+-- persona conectada solo se leen al iniciar sesión, no se refrescan solos.

@@ -23,6 +23,7 @@ export default function SettingsView() {
   const [creating, setCreating] = useState(false)
   const [busy, setBusy] = useState(false)
   const [savedMsg, setSavedMsg] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
 
   const byRoom = useMemo(() => {
     const map = new Map<string, TaskDef[]>()
@@ -37,32 +38,56 @@ export default function SettingsView() {
 
   async function handleSave(task: TaskDef) {
     setBusy(true)
-    await upsertTask(task)
-    setBusy(false)
-    setEditingId(null)
-    setCreating(false)
-    setSavedMsg(true)
+    setSaveError(null)
+    try {
+      await upsertTask(task)
+      setEditingId(null)
+      setCreating(false)
+      setSavedMsg(true)
+    } catch (e) {
+      setSaveError(e instanceof Error ? e.message : 'Error desconocido al guardar la tarea.')
+    } finally {
+      setBusy(false)
+    }
   }
 
   async function handleDelete(id: string) {
     setBusy(true)
-    await deleteTask(id)
-    setBusy(false)
-    setEditingId(null)
-    setSavedMsg(true)
+    setSaveError(null)
+    try {
+      await deleteTask(id)
+      setEditingId(null)
+      setSavedMsg(true)
+    } catch (e) {
+      setSaveError(e instanceof Error ? e.message : 'Error desconocido al borrar la tarea.')
+    } finally {
+      setBusy(false)
+    }
   }
 
   async function handleToggleActive(t: TaskDef) {
     setBusy(true)
-    await upsertTask({ ...t, active: !t.active })
-    setBusy(false)
+    setSaveError(null)
+    try {
+      await upsertTask({ ...t, active: !t.active })
+    } catch (e) {
+      setSaveError(e instanceof Error ? e.message : 'Error desconocido al guardar la tarea.')
+    } finally {
+      setBusy(false)
+    }
   }
 
   async function handleRegenerate() {
     setBusy(true)
-    await regenerateFuture()
-    setBusy(false)
-    setSavedMsg(true)
+    setSaveError(null)
+    try {
+      await regenerateFuture()
+      setSavedMsg(true)
+    } catch (e) {
+      setSaveError(e instanceof Error ? e.message : 'Error desconocido al regenerar el reparto.')
+    } finally {
+      setBusy(false)
+    }
   }
 
   const totalMinutesDaily = tasks.filter((t) => t.active && t.frequency === 'daily').reduce((s, t) => s + t.minutes, 0)
@@ -78,6 +103,7 @@ export default function SettingsView() {
           onClick={() => {
             setCreating(true)
             setEditingId(null)
+            setSaveError(null)
           }}
           className="text-sm font-semibold px-3 py-2 rounded-lg shrink-0"
           style={{ background: 'var(--color-accent)', color: '#0b1120' }}
@@ -141,7 +167,7 @@ export default function SettingsView() {
 
       {creating && (
         <div className="mb-5">
-          <TaskEditor knownRooms={knownRooms} onCancel={() => setCreating(false)} onSave={handleSave} />
+          <TaskEditor knownRooms={knownRooms} onCancel={() => setCreating(false)} onSave={handleSave} externalError={saveError} />
         </div>
       )}
 
@@ -158,6 +184,7 @@ export default function SettingsView() {
                     onCancel={() => setEditingId(null)}
                     onSave={handleSave}
                     onDelete={() => handleDelete(t.id)}
+                    externalError={saveError}
                   />
                 </div>
               ) : (
@@ -181,6 +208,7 @@ export default function SettingsView() {
                         onClick={() => {
                           setEditingId(t.id)
                           setCreating(false)
+                          setSaveError(null)
                         }}
                         aria-label="Editar tarea"
                         className="w-7 h-7 rounded-md flex items-center justify-center text-xs"

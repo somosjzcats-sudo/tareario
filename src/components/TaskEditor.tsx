@@ -9,6 +9,8 @@ interface Props {
   onCancel: () => void
   onSave: (task: TaskDef) => void
   onDelete?: () => void
+  /** Error del guardado anterior (p.ej. de Supabase), para mostrarlo dentro del formulario */
+  externalError?: string | null
 }
 
 const FREQ_OPTIONS: { value: Frequency; label: string }[] = [
@@ -17,7 +19,7 @@ const FREQ_OPTIONS: { value: Frequency; label: string }[] = [
   { value: 'monthly', label: 'Mensual' },
 ]
 
-export default function TaskEditor({ task, knownRooms, onCancel, onSave, onDelete }: Props) {
+export default function TaskEditor({ task, knownRooms, onCancel, onSave, onDelete, externalError }: Props) {
   const isNew = !task
   const [room, setRoom] = useState(task?.room ?? '')
   const [title, setTitle] = useState(task?.title ?? '')
@@ -201,6 +203,11 @@ export default function TaskEditor({ task, knownRooms, onCancel, onSave, onDelet
       )}
 
       {err && <p className="text-xs" style={{ color: 'var(--color-danger)' }}>{err}</p>}
+      {externalError && (
+        <p className="text-xs rounded-lg px-2.5 py-2" style={{ background: 'var(--color-surface)', color: 'var(--color-danger)' }}>
+          ⚠️ No se ha podido guardar: {externalError}
+        </p>
+      )}
 
       <div className="flex items-center justify-between pt-1">
         <div>
