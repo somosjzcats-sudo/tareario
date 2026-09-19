@@ -2,14 +2,23 @@ import { useMemo, useState } from 'react'
 import { ROOMS } from '../data/tasks'
 import { useData } from '../context/DataContext'
 import { PEOPLE_INFO, useProfile } from '../context/ProfileContext'
+import { useAuth } from '../context/AuthContext'
 import TaskEditor from './TaskEditor'
 import type { TaskDef } from '../lib/types'
 
 const FREQ_LABEL: Record<TaskDef['frequency'], string> = { daily: 'Diaria', weekly: 'Semanal', monthly: 'Mensual' }
+const DOW_LABEL = ['dom', 'lun', 'mar', 'mié', 'jue', 'vie', 'sáb']
+
+function fixedDayLabel(t: TaskDef): string | null {
+  if (t.fixedDay === undefined || t.fixedDay === null) return null
+  if (t.fixedDay === 'weekend') return '🗓️ finde'
+  return `🗓️ ${DOW_LABEL[t.fixedDay]}`
+}
 
 export default function SettingsView() {
   const { tasks, upsertTask, deleteTask, regenerateFuture, demoMode } = useData()
-  const { me, setMe } = useProfile()
+  const { me, setMe, canSwitch } = useProfile()
+  const { requiresLogin, session, signOut } = useAuth()
   const [editingId, setEditingId] = useState<string | null>(null)
   const [creating, setCreating] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -84,23 +93,44 @@ export default function SettingsView() {
       )}
 
       <section className="mb-5 md:max-w-sm">
-        <h2 className="text-sm font-semibold text-[color:var(--color-text-dim)] uppercase tracking-wide mb-2">Perfil de este dispositivo</h2>
-        <div className="flex gap-2">
-          {(['zaira', 'jef'] as const).map((id) => (
-            <button
-              key={id}
-              onClick={() => setMe(id)}
-              className="flex-1 rounded-lg border py-2 text-sm font-medium"
-              style={{
-                borderColor: PEOPLE_INFO[id].color,
-                background: me === id ? PEOPLE_INFO[id].color : 'transparent',
-                color: me === id ? '#0b1120' : PEOPLE_INFO[id].color,
-              }}
-            >
-              {PEOPLE_INFO[id].name}
-            </button>
-          ))}
-        </div>
+        <h2 className="text-sm font-semibold text-[color:var(--color-text-dim)] uppercase tracking-wide mb-2">Cuenta</h2>
+        {canSwitch ? (
+          <div className="flex gap-2">
+            {(['zaira', 'jef'] as const).map((id) => (
+              <button
+                key={id}
+                onClick={() => setMe(id)}
+                className="flex-1 rounded-lg border py-2 text-sm font-medium"
+                style={{
+                  borderColor: PEOPLE_INFO[id].color,
+                  background: me === id ? PEOPLE_INFO[id].color : 'transparent',
+                  color: me === id ? '#0b1120' : PEOPLE_INFO[id].color,
+                }}
+              >
+                {PEOPLE_INFO[id].name}
+              </button>
+            ))}
+          </div>
+        ) : (
+          <div
+            className="rounded-lg border px-3 py-2.5 flex items-center justify-between gap-3"
+            style={{ background: 'var(--color-surface)', borderColor: 'var(--color-border)' }}
+          >
+            <div className="min-w-0">
+              <p className="text-sm font-medium truncate">{me ? PEOPLE_INFO[me].name : '—'}</p>
+              <p className="text-[11px] text-[color:var(--color-text-dim)] truncate">{session?.user?.email}</p>
+            </div>
+            {requiresLogin && (
+              <button
+                onClick={() => void signOut()}
+                className="text-xs font-medium px-3 py-1.5 rounded-lg shrink-0"
+                style={{ background: 'var(--color-surface-2)', color: 'var(--color-danger)' }}
+              >
+                Cerrar sesión
+              </button>
+            )}
+          </div>
+        )}
       </section>
 
       <section className="mb-4">
@@ -166,6 +196,7 @@ export default function SettingsView() {
                     {t.frequency === 'monthly' && (t.intervalMonths ?? 1) > 1 && <span>cada {t.intervalMonths} meses</span>}
                     {t.timesPerPeriod > 1 && <span>×{t.timesPerPeriod}/periodo</span>}
                     <span>{t.minutes} min</span>
+                    {fixedDayLabel(t) && <span>{fixedDayLabel(t)}</span>}
                   </div>
                 </div>
               ),
@@ -175,16 +206,19 @@ export default function SettingsView() {
       ))}
 
       <div
-        className="sticky bottom-16 md:static mt-4 pt-2 pb-1 flex flex-col md:flex-row gap-2 md:justify-end"
+        className="sticky bottom-16 md:static mt-4 pt-2 pb-1 flex flex-col gap-1.5 md:flex-row md:items-center md:justify-end"
         style={{ background: 'linear-gradient(to top, var(--color-bg) 70%, transparent)' }}
       >
+        <p className="text-[11px] text-center md:text-right text-[color:var(--color-text-dim)] md:mr-2">
+          El reparto futuro se reajusta solo al añadir, editar o borrar tareas.
+        </p>
         <button
           onClick={handleRegenerate}
           disabled={busy}
           className="w-full md:w-auto rounded-xl px-4 py-2.5 text-sm font-medium border"
           style={{ borderColor: 'var(--color-border)', background: 'var(--color-surface)' }}
         >
-          🔄 Regenerar reparto futuro (no toca lo ya hecho)
+          🔄 Forzar regeneración ahora
         </button>
         {savedMsg && <p className="text-[11px] text-center md:self-center text-[color:var(--color-accent)]">Guardado ✓</p>}
       </div>

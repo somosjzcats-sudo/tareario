@@ -1,6 +1,6 @@
 {
-  "name": "Casa Tareas",
-  "short_name": "Casa Tareas",
+  "name": "Tareario",
+  "short_name": "Tareario",
   "description": "Reparto y seguimiento de tareas del hogar entre dos personas",
   "start_url": "./",
   "scope": "./",

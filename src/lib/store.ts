@@ -14,8 +14,8 @@ export interface Store {
 
 // ---------------- LocalStorage (modo demo / sin Supabase configurado) ----------------
 
-const LS_TASKS = 'casa-tareas:tasks'
-const LS_OCC = 'casa-tareas:occurrences'
+const LS_TASKS = 'tareario:tasks'
+const LS_OCC = 'tareario:occurrences'
 
 function readLS<T>(key: string, fallback: T): T {
   try {
@@ -72,6 +72,17 @@ class LocalStore implements Store {
 
 // ---------------- Supabase ----------------
 
+function fixedDayToDb(fixedDay: TaskDef['fixedDay']): string | null {
+  if (fixedDay === undefined || fixedDay === null) return null
+  return String(fixedDay)
+}
+function fixedDayFromDb(value: unknown): TaskDef['fixedDay'] {
+  if (value === null || value === undefined || value === '') return undefined
+  if (value === 'weekend') return 'weekend'
+  const n = Number(value)
+  return Number.isFinite(n) ? n : undefined
+}
+
 function toDbTask(t: TaskDef) {
   return {
     id: t.id,
@@ -83,6 +94,7 @@ function toDbTask(t: TaskDef) {
     times_per_period: t.timesPerPeriod,
     minutes: t.minutes,
     active: t.active,
+    fixed_day: fixedDayToDb(t.fixedDay),
   }
 }
 function fromDbTask(r: Record<string, unknown>): TaskDef {
@@ -95,6 +107,7 @@ function fromDbTask(r: Record<string, unknown>): TaskDef {
     intervalMonths: (r.interval_months as number) ?? 1,
     timesPerPeriod: r.times_per_period as number,
     minutes: r.minutes as number,
+    fixedDay: fixedDayFromDb(r.fixed_day),
     active: r.active as boolean,
   }
 }

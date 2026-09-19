@@ -21,6 +21,10 @@ export interface TaskDef {
   /** minutos estimados por ejecución */
   minutes: number
   active: boolean
+  /** Fija esta tarea a un día concreto de la semana (0=domingo..6=sábado,
+   * como Date.getDay()), o a "weekend" para que caiga en sábado o domingo
+   * (alternando). Solo aplica a tareas semanales o mensuales. */
+  fixedDay?: number | 'weekend'
 }
 
 export type OccurrenceStatus = 'pending' | 'done' | 'missed'

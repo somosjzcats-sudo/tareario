@@ -1,9 +1,16 @@
 import type { Occurrence, PersonId, TaskDef } from './types'
-import { isWeekend } from './schedule'
+import { isWeekend, mondayOf, weekKeyOf } from './schedule'
+import { addWeeks, format } from 'date-fns'
 
 export const PENALTY_PER_MISSED = 5
 export const STREAK_BONUS_STEP = 7 // cada 7 días de racha, +1 punto extra por tarea
 export const WEEKEND_BONUS = 2 // puntos extra por completar algo en fin de semana (compensa el esfuerzo)
+
+// --- Objetivo semanal y penalización por semanas flojas ---
+export const BAD_WEEK_THRESHOLD = 0.75 // menos del 75% completado a tiempo = "semana floja"
+export const MAX_BAD_STREAK = 3 // a partir de aquí no se penaliza más
+export const SHIFT_PER_BAD_WEEK = 0.08 // 8 puntos porcentuales de carga extra por cada semana floja consecutiva
+export const MAX_SHIFT = 0.24 // tope de desvío (se aplica antes de dividir entre 2): con esto, el reparto llega como mucho a 62/38
 
 export function pointsForOccurrence(minutes: number, dateStr: string, currentStreak: number): number {
   const base = Math.max(1, Math.round(minutes / 2))
@@ -107,4 +114,92 @@ export function badgesFor(stats: PersonStats): Badge[] {
   if (stats.completionRate >= 0.95 && stats.completed + stats.missed >= 10) badges.push({ id: 'reliable', label: 'De fiar', emoji: '✅', description: '95%+ de tareas completadas' })
   if (stats.missed === 0 && stats.completed >= 20) badges.push({ id: 'flawless', label: 'Sin fallos', emoji: '💎', description: 'Ninguna tarea perdida' })
   return badges
+}
+
+// ---------------- Semanas: minutos asignados, cumplimiento y penalización ----------------
+
+export interface WeekSummary {
+  weekKey: string // lunes de esa semana, yyyy-MM-dd
+  assignedMinutes: number
+  completed: number
+  missed: number
+  completionRate: number // sobre tareas ya vencidas esa semana (done+missed); 1 si no había ninguna
+}
+
+/** Resumen semana a semana (por lunes) de lo asignado a `person`, usando los
+ * minutos del catálogo (no los puntos). Incluye semanas futuras (asignadas
+ * pero aún pendientes) además de las ya pasadas. */
+export function weeklySummaries(occurrences: Occurrence[], tasksById: Map<string, TaskDef>, person: PersonId): Map<string, WeekSummary> {
+  const map = new Map<string, WeekSummary>()
+  for (const o of occurrences) {
+    if (o.assignedTo !== person) continue
+    const wk = weekKeyOf(o.date)
+    const minutes = tasksById.get(o.taskId)?.minutes ?? 0
+    if (!map.has(wk)) map.set(wk, { weekKey: wk, assignedMinutes: 0, completed: 0, missed: 0, completionRate: 1 })
+    const s = map.get(wk)!
+    s.assignedMinutes += minutes
+    if (o.status === 'done') s.completed += 1
+    if (o.status === 'missed') s.missed += 1
+  }
+  for (const s of map.values()) {
+    const due = s.completed + s.missed
+    s.completionRate = due > 0 ? s.completed / due : 1
+  }
+  return map
+}
+
+/** Minutos asignados esta semana (lunes-domingo actual) a cada persona —
+ * la cifra clave para juzgar si el reparto está siendo justo, según pediste:
+ * es más fácil ajustar mirando el total semanal que el día a día. */
+export function currentWeekMinutes(occurrences: Occurrence[], tasksById: Map<string, TaskDef>, todayStr: string): Record<PersonId, number> {
+  const wk = weekKeyOf(todayStr)
+  const zaira = weeklySummaries(occurrences, tasksById, 'zaira').get(wk)?.assignedMinutes ?? 0
+  const jef = weeklySummaries(occurrences, tasksById, 'jef').get(wk)?.assignedMinutes ?? 0
+  return { zaira, jef }
+}
+
+/** Cuenta cuántas semanas SEGUIDAS (terminadas, hacia atrás desde la semana
+ * anterior a la actual) ha estado `person` por debajo de BAD_WEEK_THRESHOLD.
+ * Una semana sin ninguna tarea vencida no cuenta ni rompe la racha (no hay
+ * datos para juzgarla). */
+export function computeBadWeekStreak(occurrences: Occurrence[], tasksById: Map<string, TaskDef>, person: PersonId, todayStr: string): number {
+  const summaries = weeklySummaries(occurrences, tasksById, person)
+  let cursor = mondayOf(new Date(todayStr + 'T00:00:00'))
+  cursor = addWeeks(cursor, -1) // empezamos por la última semana ya terminada
+  let streak = 0
+  for (let i = 0; i < MAX_BAD_STREAK + 2; i++) {
+    const key = format(cursor, 'yyyy-MM-dd')
+    const s = summaries.get(key)
+    if (!s || s.completed + s.missed === 0) break // sin datos esa semana: paramos aquí
+    if (s.completionRate < BAD_WEEK_THRESHOLD) {
+      streak += 1
+      cursor = addWeeks(cursor, -1)
+    } else {
+      break
+    }
+  }
+  return Math.min(streak, MAX_BAD_STREAK)
+}
+
+export interface WeeklyTargetInfo {
+  share: Record<PersonId, number> // suma 1
+  badStreak: Record<PersonId, number>
+  biased: boolean
+}
+
+/** Reparto objetivo de minutos semanales entre las dos personas. Por
+ * defecto 50/50; si alguien lleva semanas flojas seguidas, se desvía para
+ * que asuma algo más de carga la semana siguiente, hasta recuperarse. */
+export function computeWeeklyTargetShare(occurrences: Occurrence[], tasksById: Map<string, TaskDef>, todayStr: string): WeeklyTargetInfo {
+  const zairaStreak = computeBadWeekStreak(occurrences, tasksById, 'zaira', todayStr)
+  const jefStreak = computeBadWeekStreak(occurrences, tasksById, 'jef', todayStr)
+  const shiftZaira = Math.min(zairaStreak * SHIFT_PER_BAD_WEEK, MAX_SHIFT)
+  const shiftJef = Math.min(jefStreak * SHIFT_PER_BAD_WEEK, MAX_SHIFT)
+  const net = shiftZaira - shiftJef // positivo => a Zaira le toca MÁS (iba floja)
+  const zairaShare = Math.min(0.75, Math.max(0.25, 0.5 + net / 2))
+  return {
+    share: { zaira: zairaShare, jef: 1 - zairaShare },
+    badStreak: { zaira: zairaStreak, jef: jefStreak },
+    biased: net !== 0,
+  }
 }

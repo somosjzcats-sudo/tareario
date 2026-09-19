@@ -1,10 +1,10 @@
 import { addDays, format, subDays } from 'date-fns'
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
-import { computeStats } from '../lib/gamification'
-import { pointsForOccurrence } from '../lib/gamification'
+import { computeStats, computeWeeklyTargetShare, pointsForOccurrence, type WeeklyTargetInfo } from '../lib/gamification'
 import { generateOccurrences } from '../lib/schedule'
 import { store } from '../lib/store'
 import { supabaseConfigured } from '../lib/supabase'
+import { useAuth } from './AuthContext'
 import type { Occurrence, PersonId, TaskDef } from '../lib/types'
 
 const WINDOW_BACK_DAYS = 3
@@ -21,6 +21,7 @@ interface DataCtx {
   tasks: TaskDef[]
   tasksById: Map<string, TaskDef>
   occurrences: Occurrence[]
+  weeklyTarget: WeeklyTargetInfo
   refresh: () => Promise<void>
   completeOccurrence: (id: string, by: PersonId) => Promise<void>
   uncompleteOccurrence: (id: string) => Promise<void>
@@ -34,12 +35,18 @@ interface DataCtx {
 const Ctx = createContext<DataCtx | null>(null)
 
 export function DataProvider({ children }: { children: ReactNode }) {
+  const { requiresLogin, session, loading: authLoading } = useAuth()
   const [tasks, setTasks] = useState<TaskDef[]>([])
   const [occurrences, setOccurrences] = useState<Occurrence[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
   const tasksById = useMemo(() => new Map(tasks.map((t) => [t.id, t])), [tasks])
+
+  const weeklyTarget = useMemo(
+    () => computeWeeklyTargetShare(occurrences, tasksById, todayStr()),
+    [occurrences, tasksById],
+  )
 
   const runMaintenance = useCallback(async (currentTasks: TaskDef[], currentOccs: Occurrence[]) => {
     const today = todayStr()
@@ -55,18 +62,13 @@ export function DataProvider({ children }: { children: ReactNode }) {
     const end = addDays(new Date(), WINDOW_FWD_DAYS)
     const existingKeys = new Set(currentOccs.map((o) => o.id))
 
-    // Carga inicial para continuar el balance de forma justa (minutos ya
-    // asignados en la ventana reciente, en vez de reiniciar el criterio voraz)
-    const recentCutoff = format(subDays(new Date(), 21), 'yyyy-MM-dd')
-    const initialLoad: Record<PersonId, number> = { zaira: 0, jef: 0 }
-    for (const o of currentOccs) {
-      if (o.date >= recentCutoff) {
-        const t = currentTasks.find((tt) => tt.id === o.taskId)
-        if (t) initialLoad[o.assignedTo] += t.minutes
-      }
-    }
+    // Objetivo de reparto semanal (50/50 salvo penalización por semanas
+    // flojas seguidas) para que el balance se juzgue por minutos/semana y no
+    // día a día.
+    const tasksByIdLocal = new Map(currentTasks.map((t) => [t.id, t]))
+    const { share: targetShare } = computeWeeklyTargetShare(currentOccs, tasksByIdLocal, today)
 
-    const draft = generateOccurrences(currentTasks, { start, end, existingKeys, initialLoad })
+    const draft = generateOccurrences(currentTasks, { start, end, existingKeys, targetShare })
     if (draft.length === 0) return currentOccs
 
     const nowIso = new Date().toISOString()
@@ -101,9 +103,17 @@ export function DataProvider({ children }: { children: ReactNode }) {
   }, [runMaintenance])
 
   useEffect(() => {
+    // Con login real, esperamos a saber si hay sesión antes de tocar datos.
+    if (requiresLogin && authLoading) return
+    if (requiresLogin && !session) {
+      setTasks([])
+      setOccurrences([])
+      setLoading(false)
+      return
+    }
     refresh()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [requiresLogin, authLoading, session])
 
   const completeOccurrence = useCallback(
     async (id: string, by: PersonId) => {
@@ -135,14 +145,24 @@ export function DataProvider({ children }: { children: ReactNode }) {
     setTasks(next)
   }, [])
 
+  const regenerateFuture = useCallback(async () => {
+    const today = todayStr()
+    const toDelete = occurrences.filter((o) => o.status === 'pending' && o.date >= today).map((o) => o.id)
+    if (toDelete.length > 0) await store.deleteOccurrences(toDelete)
+    await refresh()
+  }, [occurrences, refresh])
+
   const upsertTask = useCallback(
     async (task: TaskDef) => {
       const exists = tasks.some((t) => t.id === task.id)
       const next = exists ? tasks.map((t) => (t.id === task.id ? task : t)) : [...tasks, task]
       await store.saveTasks(next)
       setTasks(next)
+      // Reajuste automático: al añadir/editar una tarea, el reparto futuro
+      // se recalcula solo (ya no hace falta pulsar un botón).
+      await regenerateFuture()
     },
-    [tasks],
+    [tasks, regenerateFuture],
   )
 
   const deleteTask = useCallback(
@@ -150,18 +170,10 @@ export function DataProvider({ children }: { children: ReactNode }) {
       await store.deleteTask(id)
       setTasks((prev) => prev.filter((t) => t.id !== id))
       setOccurrences((prev) => prev.filter((o) => o.taskId !== id))
+      await regenerateFuture()
     },
-    [],
+    [regenerateFuture],
   )
-
-  const regenerateFuture = useCallback(async () => {
-    const today = todayStr()
-    const toDelete = occurrences.filter((o) => o.status === 'pending' && o.date >= today).map((o) => o.id)
-    await store.deleteOccurrences(toDelete)
-    const remaining = occurrences.filter((o) => !toDelete.includes(o.id))
-    setOccurrences(remaining)
-    await refresh()
-  }, [occurrences, refresh])
 
   const value: DataCtx = {
     loading,
@@ -170,6 +182,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
     tasks,
     tasksById,
     occurrences,
+    weeklyTarget,
     refresh,
     completeOccurrence,
     uncompleteOccurrence,

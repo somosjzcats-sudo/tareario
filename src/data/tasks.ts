@@ -83,7 +83,7 @@ export const TASKS: TaskDef[] = [
   task({ room: 'Baño', title: 'Ventana', frequency: 'weekly', minutes: 4 }),
   task({ room: 'Baño', title: 'Ducha a fondo', frequency: 'weekly', minutes: 6 }),
 
-  task({ room: 'Habitación', title: 'Cambiar sábanas', frequency: 'weekly', minutes: 8 }),
+  task({ room: 'Habitación', title: 'Cambiar sábanas', frequency: 'weekly', minutes: 8, fixedDay: 'weekend' }),
   task({ room: 'Habitación', title: 'Sacudir alfombra', frequency: 'weekly', minutes: 4 }),
   task({ room: 'Habitación', title: 'Mesitas', frequency: 'weekly', minutes: 3 }),
   task({ room: 'Habitación', title: 'Fregar suelo', frequency: 'weekly', minutes: 6 }),

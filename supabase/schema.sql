@@ -1,5 +1,7 @@
 -- Esquema para "Casa Tareas" en Supabase.
 -- Pégalo en el SQL Editor de tu proyecto Supabase (Project > SQL Editor > New query) y ejecútalo.
+-- Si ya tenías el proyecto creado con una versión anterior de este esquema,
+-- usa en su lugar supabase/migration_auth.sql (no hace falta borrar nada).
 
 create table if not exists tasks (
   id text primary key,
@@ -11,6 +13,7 @@ create table if not exists tasks (
   times_per_period int not null default 1,
   minutes int not null default 5,
   active boolean not null default true,
+  fixed_day text, -- '0'..'6' (domingo..sábado) o 'weekend', o null si no está fijada
   updated_at timestamptz not null default now()
 );
 
@@ -29,23 +32,24 @@ create table if not exists occurrences (
 create index if not exists occurrences_date_idx on occurrences(date);
 create index if not exists occurrences_task_idx on occurrences(task_id);
 
--- Config simple clave/valor (p.ej. hasta qué fecha se ha generado el calendario)
+-- Config simple clave/valor (reservado para uso futuro)
 create table if not exists app_config (
   key text primary key,
   value jsonb not null
 );
 
--- RLS: la app usa la clave "anon" pública sin login (solo dos personas de confianza
--- comparten el enlace). Se abre lectura/escritura completa a esa clave.
+-- RLS: solo usuarios AUTENTICADOS (con cuenta creada en Supabase Auth) pueden
+-- leer y escribir. Ver README/migration_auth.sql para crear las cuentas de
+-- Zaira y Jef.
 alter table tasks enable row level security;
 alter table occurrences enable row level security;
 alter table app_config enable row level security;
 
 drop policy if exists "tasks_all" on tasks;
-create policy "tasks_all" on tasks for all using (true) with check (true);
+create policy "tasks_all" on tasks for all using (auth.role() = 'authenticated') with check (auth.role() = 'authenticated');
 
 drop policy if exists "occurrences_all" on occurrences;
-create policy "occurrences_all" on occurrences for all using (true) with check (true);
+create policy "occurrences_all" on occurrences for all using (auth.role() = 'authenticated') with check (auth.role() = 'authenticated');
 
 drop policy if exists "app_config_all" on app_config;
-create policy "app_config_all" on app_config for all using (true) with check (true);
+create policy "app_config_all" on app_config for all using (auth.role() = 'authenticated') with check (auth.role() = 'authenticated');

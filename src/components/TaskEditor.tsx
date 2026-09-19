@@ -27,6 +27,9 @@ export default function TaskEditor({ task, knownRooms, onCancel, onSave, onDelet
   const [intervalMonths, setIntervalMonths] = useState(task?.intervalMonths ?? 1)
   const [minutes, setMinutes] = useState(task?.minutes ?? 5)
   const [active, setActive] = useState(task?.active ?? true)
+  const [fixedDayOpt, setFixedDayOpt] = useState<string>(
+    task?.fixedDay === undefined || task?.fixedDay === null ? 'none' : String(task.fixedDay),
+  )
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [err, setErr] = useState<string | null>(null)
 
@@ -35,6 +38,8 @@ export default function TaskEditor({ task, knownRooms, onCancel, onSave, onDelet
       setErr('La sala y el título son obligatorios.')
       return
     }
+    const fixedDay: TaskDef['fixedDay'] =
+      fixedDayOpt === 'none' ? undefined : fixedDayOpt === 'weekend' ? 'weekend' : Number(fixedDayOpt)
     const next: TaskDef = {
       id: task?.id ?? newTaskId(room, title),
       room: room.trim(),
@@ -42,9 +47,10 @@ export default function TaskEditor({ task, knownRooms, onCancel, onSave, onDelet
       detail: detail.trim() || undefined,
       frequency,
       intervalMonths: frequency === 'monthly' ? Math.max(1, intervalMonths) : 1,
-      timesPerPeriod: frequency === 'daily' ? 1 : Math.max(1, timesPerPeriod),
+      timesPerPeriod: frequency === 'daily' || fixedDay !== undefined ? 1 : Math.max(1, timesPerPeriod),
       minutes: Math.max(1, minutes),
       active,
+      fixedDay,
     }
     onSave(next)
   }
@@ -114,7 +120,7 @@ export default function TaskEditor({ task, knownRooms, onCancel, onSave, onDelet
           </select>
         </label>
 
-        {frequency !== 'daily' && (
+        {frequency !== 'daily' && fixedDayOpt === 'none' && (
           <label className="text-xs text-[color:var(--color-text-dim)] flex flex-col gap-1">
             Veces / periodo
             <input
@@ -126,6 +132,28 @@ export default function TaskEditor({ task, knownRooms, onCancel, onSave, onDelet
               className="rounded px-2 py-1.5 text-sm text-[color:var(--color-text)]"
               style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)' }}
             />
+          </label>
+        )}
+
+        {frequency !== 'daily' && (
+          <label className="text-xs text-[color:var(--color-text-dim)] flex flex-col gap-1">
+            Día fijo
+            <select
+              value={fixedDayOpt}
+              onChange={(e) => setFixedDayOpt(e.target.value)}
+              className="rounded px-2 py-1.5 text-sm text-[color:var(--color-text)]"
+              style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)' }}
+            >
+              <option value="none">Sin día fijo</option>
+              <option value="weekend">Fin de semana</option>
+              <option value="1">Lunes</option>
+              <option value="2">Martes</option>
+              <option value="3">Miércoles</option>
+              <option value="4">Jueves</option>
+              <option value="5">Viernes</option>
+              <option value="6">Sábado</option>
+              <option value="0">Domingo</option>
+            </select>
           </label>
         )}
 
@@ -163,6 +191,14 @@ export default function TaskEditor({ task, knownRooms, onCancel, onSave, onDelet
           </span>
         </label>
       </div>
+
+      {fixedDayOpt !== 'none' && (
+        <p className="text-[11px] text-[color:var(--color-text-dim)]">
+          {fixedDayOpt === 'weekend'
+            ? 'Caerá en sábado o domingo (alterna entre semanas).'
+            : 'Se fija a ese día cada semana/mes; "veces por periodo" queda en 1.'}
+        </p>
+      )}
 
       {err && <p className="text-xs" style={{ color: 'var(--color-danger)' }}>{err}</p>}
 

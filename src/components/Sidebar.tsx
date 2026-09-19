@@ -1,5 +1,6 @@
 import type { Tab } from './NavBar'
 import { PEOPLE_INFO, useProfile } from '../context/ProfileContext'
+import { useAuth } from '../context/AuthContext'
 
 const TABS: { id: Tab; label: string; emoji: string }[] = [
   { id: 'hoy', label: 'Hoy', emoji: '📋' },
@@ -10,6 +11,7 @@ const TABS: { id: Tab; label: string; emoji: string }[] = [
 
 export default function Sidebar({ active, onChange }: { active: Tab; onChange: (t: Tab) => void }) {
   const { me } = useProfile()
+  const { requiresLogin, signOut } = useAuth()
 
   return (
     <aside
@@ -18,7 +20,7 @@ export default function Sidebar({ active, onChange }: { active: Tab; onChange: (
     >
       <div className="flex items-center gap-2 mb-8 px-1">
         <span className="text-2xl">🏠</span>
-        <span className="font-semibold">Casa Tareas</span>
+        <span className="font-semibold">Tareario</span>
       </div>
 
       <nav className="flex flex-col gap-1">
@@ -50,7 +52,18 @@ export default function Sidebar({ active, onChange }: { active: Tab; onChange: (
           >
             {PEOPLE_INFO[me].name.slice(0, 1)}
           </span>
-          <span className="text-xs text-[color:var(--color-text-dim)]">Conectado como {PEOPLE_INFO[me].name}</span>
+          <span className="text-xs text-[color:var(--color-text-dim)] flex-1">Conectado como {PEOPLE_INFO[me].name}</span>
+          {requiresLogin && (
+            <button
+              onClick={() => void signOut()}
+              aria-label="Cerrar sesión"
+              title="Cerrar sesión"
+              className="text-xs shrink-0 px-1.5 py-1 rounded-md"
+              style={{ color: 'var(--color-text-dim)' }}
+            >
+              ⏻
+            </button>
+          )}
         </div>
       )}
     </aside>
