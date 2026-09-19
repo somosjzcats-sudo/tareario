@@ -10,21 +10,21 @@ import type { PersonId } from '../lib/types'
 const PEOPLE: PersonId[] = ['zaira', 'jef']
 
 export default function StatsView() {
-  const { occurrences, tasksById, weeklyTarget } = useData()
+  const { statsOccurrences, statsStartDate, tasksById, weeklyTarget, resetStatsFrom, clearStatsReset } = useData()
   const today = todayStr()
 
-  const stats = useMemo(() => PEOPLE.map((p) => computeStats(occurrences, tasksById, p, today)), [occurrences, tasksById, today])
+  const stats = useMemo(() => PEOPLE.map((p) => computeStats(statsOccurrences, tasksById, p, today)), [statsOccurrences, tasksById, today])
 
   const missedBreakdown = useMemo(
-    () => Object.fromEntries(PEOPLE.map((p) => [p, computeMissedBreakdown(occurrences, tasksById, p)])) as Record<PersonId, ReturnType<typeof computeMissedBreakdown>>,
-    [occurrences, tasksById],
+    () => Object.fromEntries(PEOPLE.map((p) => [p, computeMissedBreakdown(statsOccurrences, tasksById, p)])) as Record<PersonId, ReturnType<typeof computeMissedBreakdown>>,
+    [statsOccurrences, tasksById],
   )
   const recentMissedByPerson = useMemo(
-    () => Object.fromEntries(PEOPLE.map((p) => [p, recentMissed(occurrences, tasksById, p, 6)])) as Record<PersonId, ReturnType<typeof recentMissed>>,
-    [occurrences, tasksById],
+    () => Object.fromEntries(PEOPLE.map((p) => [p, recentMissed(statsOccurrences, tasksById, p, 6)])) as Record<PersonId, ReturnType<typeof recentMissed>>,
+    [statsOccurrences, tasksById],
   )
 
-  const weekMinutes = useMemo(() => currentWeekMinutes(occurrences, tasksById, today), [occurrences, tasksById, today])
+  const weekMinutes = useMemo(() => currentWeekMinutes(statsOccurrences, tasksById, today), [statsOccurrences, tasksById, today])
   const weekTotal = weekMinutes.zaira + weekMinutes.jef
   const weekDiff = Math.abs(weekMinutes.zaira - weekMinutes.jef)
 
@@ -38,20 +38,44 @@ export default function StatsView() {
       const dateStr = format(d, 'yyyy-MM-dd')
       const row: Record<string, string | number> = { date: format(d, 'd MMM', { locale: es }) }
       for (const p of PEOPLE) {
-        row[p] = occurrences
+        row[p] = statsOccurrences
           .filter((o) => o.date === dateStr && o.assignedTo === p && o.status === 'done')
           .reduce((s, o) => s + (tasksById.get(o.taskId)?.minutes ?? 0), 0)
       }
       return row
     })
-  }, [occurrences, tasksById])
+  }, [statsOccurrences, tasksById])
+
+  async function handleResetToday() {
+    if (!confirm('¿Reiniciar contadores y estadísticas para que cuenten solo desde hoy? El historial de antes se sigue viendo día a día en Semana, pero deja de contar en puntos, rachas y perdidas.')) return
+    await resetStatsFrom()
+  }
 
   return (
     <div className="px-4 md:px-8 pt-4 md:pt-8 pb-24 md:pb-10 max-w-md md:max-w-3xl mx-auto">
-      <header className="mb-4">
-        <h1 className="text-xl font-semibold">Estadísticas</h1>
-        <p className="text-xs text-[color:var(--color-text-dim)]">Constancia y reparto entre los dos</p>
+      <header className="mb-4 flex items-start justify-between gap-3 flex-wrap">
+        <div>
+          <h1 className="text-xl font-semibold">Estadísticas</h1>
+          <p className="text-xs text-[color:var(--color-text-dim)]">Constancia y reparto entre los dos</p>
+        </div>
+        <button
+          onClick={handleResetToday}
+          className="text-[11px] font-medium px-2.5 py-1.5 rounded-lg shrink-0"
+          style={{ background: 'var(--color-surface-2)', color: 'var(--color-text-dim)' }}
+        >
+          🔄 Reiniciar desde hoy
+        </button>
       </header>
+
+      {statsStartDate && (
+        <div
+          className="rounded-lg border px-3 py-2 mb-4 text-[11px] flex items-center justify-between gap-2 flex-wrap"
+          style={{ background: 'var(--color-surface-2)', borderColor: 'var(--color-border)', color: 'var(--color-text-dim)' }}
+        >
+          <span>📊 Contando desde el {statsStartDate}. Lo de antes se sigue viendo en Semana pero ya no cuenta aquí.</span>
+          <button onClick={() => void clearStatsReset()} className="underline shrink-0">Contar todo el historial</button>
+        </div>
+      )}
 
       <div className="grid grid-cols-2 gap-3 mb-5">
         {stats.map((s) => {

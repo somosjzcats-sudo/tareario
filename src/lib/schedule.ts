@@ -12,6 +12,7 @@ import {
 } from 'date-fns'
 import type { Occurrence, PersonId, TaskDef } from './types'
 import { hashString } from './hash'
+import { isDateInVacation, isVacationTolerant, type VacationRange } from './availability'
 
 const EPOCH = new Date(2020, 0, 1)
 const PEOPLE: PersonId[] = ['zaira', 'jef']
@@ -130,6 +131,10 @@ interface BuildOptions {
   start: Date
   end: Date
   existingKeys: Set<string> // `${taskId}_${date}` ya presentes, no se duplican
+  /** Periodos de vacaciones conocidos. Las tareas "no tolerantes" (semanales
+   * 1x/semana y mensuales) nunca se colocan dentro de uno: se corren al
+   * primer día libre después de que acaben. */
+  vacations?: VacationRange[]
 }
 
 /** Primera fase: decide en qué FECHA cae cada ocurrencia (sin decidir
@@ -141,8 +146,22 @@ function buildPlacements(tasks: TaskDef[], opts: BuildOptions): Placement[] {
   const seen = new Set<string>()
 
   function addPlacement(task: TaskDef, date: Date) {
-    const dateStr = format(date, 'yyyy-MM-dd')
-    if (date < opts.start || date > opts.end) return
+    let d = date
+    let dateStr = format(d, 'yyyy-MM-dd')
+    // Las tareas "no tolerantes" a vacaciones (semanales 1x/semana y
+    // mensuales) nunca se plantan dentro de un periodo de vacaciones: se
+    // correrían al primer día libre después de que terminen, para no
+    // perderse esa ocurrencia durante meses.
+    if (opts.vacations && opts.vacations.length > 0 && !isVacationTolerant(task)) {
+      let guard = 0
+      while (isDateInVacation(dateStr, opts.vacations) && guard < 90) {
+        const v = opts.vacations.find((v) => dateStr >= v.start && dateStr <= v.end)!
+        d = addDays(new Date(v.end + 'T00:00:00'), 1)
+        dateStr = format(d, 'yyyy-MM-dd')
+        guard++
+      }
+    }
+    if (d < opts.start || d > opts.end) return
     const key = `${task.id}_${dateStr}`
     if (opts.existingKeys.has(key) || seen.has(key)) return
     seen.add(key)

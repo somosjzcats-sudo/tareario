@@ -13,6 +13,8 @@ export interface Store {
   deleteOccurrences(ids: string[]): Promise<void>
   getVacations(): Promise<VacationRange[]>
   saveVacations(vacations: VacationRange[]): Promise<void>
+  getStatsStartDate(): Promise<string | null>
+  saveStatsStartDate(date: string | null): Promise<void>
 }
 
 // ---------------- LocalStorage (modo demo / sin Supabase configurado) ----------------
@@ -20,6 +22,7 @@ export interface Store {
 const LS_TASKS = 'tareario:tasks'
 const LS_OCC = 'tareario:occurrences'
 const LS_VACATIONS = 'tareario:vacations'
+const LS_STATS_START = 'tareario:statsStartDate'
 
 function readLS<T>(key: string, fallback: T): T {
   try {
@@ -77,6 +80,12 @@ class LocalStore implements Store {
   }
   async saveVacations(vacations: VacationRange[]) {
     writeLS(LS_VACATIONS, vacations)
+  }
+  async getStatsStartDate() {
+    return readLS<string | null>(LS_STATS_START, null)
+  }
+  async saveStatsStartDate(date: string | null) {
+    writeLS(LS_STATS_START, date)
   }
 }
 
@@ -199,6 +208,20 @@ class SupabaseStore implements Store {
   }
   async saveVacations(vacations: VacationRange[]) {
     const { error } = await supabase.from('app_config').upsert({ key: 'vacations', value: vacations })
+    if (error) throw error
+  }
+  async getStatsStartDate(): Promise<string | null> {
+    const { data, error } = await supabase.from('app_config').select('value').eq('key', 'stats_start_date').maybeSingle()
+    if (error) throw error
+    return (data?.value as string | undefined) ?? null
+  }
+  async saveStatsStartDate(date: string | null) {
+    if (date === null) {
+      const { error } = await supabase.from('app_config').delete().eq('key', 'stats_start_date')
+      if (error) throw error
+      return
+    }
+    const { error } = await supabase.from('app_config').upsert({ key: 'stats_start_date', value: date })
     if (error) throw error
   }
 }

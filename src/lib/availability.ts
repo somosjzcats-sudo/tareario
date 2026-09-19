@@ -128,6 +128,39 @@ export function isDateInVacation(date: string, vacations: VacationRange[]): bool
   return vacations.some((v) => date >= v.start && date <= v.end)
 }
 
+/** Las diarias y las semanales (1x o 2x por semana, con o sin día fijo)
+ * pueden tener una ocurrencia dentro de un periodo de vacaciones sin que sea
+ * un problema real: como mucho se queda sin hacer esa semana (p.ej. cambiar
+ * sábanas), y la semana siguiente vuelve a tocar con normalidad. Las
+ * mensuales NUNCA son tolerantes, sea cual sea su intervalo: si una tarea de
+ * cada 3 o 6 meses cae en vacaciones, esa ocurrencia se perdería durante
+ * meses en vez de una semana, así que hay que recolocarla sí o sí. */
+export function isVacationTolerant(task: TaskDef): boolean {
+  return task.frequency !== 'monthly'
+}
+
+/** Primer día, a partir de `fromDateStr`, que ya no cae en ninguna vacación
+ * y que no choca con otra ocurrencia ya existente de la misma tarea. Se usa
+ * para recolocar una ocurrencia "no tolerante" que ha quedado dentro de un
+ * periodo de vacaciones (en vez de dejarla ahí parada indefinidamente). */
+export function nextFreeDateAfterVacation(
+  fromDateStr: string,
+  taskId: string,
+  occurrences: { taskId: string; date: string }[],
+  vacations: VacationRange[],
+): string {
+  const usedDates = new Set(occurrences.filter((o) => o.taskId === taskId).map((o) => o.date))
+  let d = toDate(fromDateStr)
+  let guard = 0
+  while (guard < 120) {
+    const ds = dayStr(d)
+    if (!isDateInVacation(ds, vacations) && !usedDates.has(ds)) return ds
+    d = addDays(d, 1)
+    guard++
+  }
+  return dayStr(d)
+}
+
 /** ¿Se puede marcar esta ocurrencia como hecha ahora mismo? Las de vacaciones
  * siempre se pueden marcar (por si al final sí os da tiempo a hacer algo). */
 export function canCompleteNow(

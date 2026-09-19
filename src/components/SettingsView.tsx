@@ -260,7 +260,9 @@ export default function SettingsView() {
       <section className="mb-5 md:max-w-2xl">
         <h2 className="text-sm font-semibold text-[color:var(--color-text-dim)] uppercase tracking-wide mb-2">🌴 Vacaciones / pausa</h2>
         <p className="text-[11px] text-[color:var(--color-text-dim)] mb-2">
-          Mientras dure el rango, las tareas de esos días no cuentan como perdidas aunque no se hagan.
+          Mientras dure el rango, las diarias y semanales de esos días no cuentan como perdidas aunque no se hagan.
+          Las mensuales nunca caen en vacaciones: si les tocaba justo esos días, se recolocan solas al primer día
+          libre después de que acaben, para no perderse esa ocurrencia durante meses.
         </p>
 
         {vacations.length > 0 && (
