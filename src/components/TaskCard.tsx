@@ -1,22 +1,52 @@
 import { useState } from 'react'
 import { ROOMS } from '../data/tasks'
 import { PEOPLE_INFO } from '../context/ProfileContext'
+import type { OccurrenceAvailability } from '../context/DataContext'
 import type { Occurrence, PersonId, TaskDef } from '../lib/types'
 
 interface Props {
   occurrence: Occurrence
   task: TaskDef
-  onComplete: (id: string) => void
+  onComplete: (id: string) => void | Promise<void>
   onUncomplete: (id: string) => void
   onReassign: (id: string, to: PersonId) => void
+  /** Ventana de disponibilidad de esta ocurrencia (adelanto/retraso permitido,
+   * caducidad, si cae en vacaciones…). Si no se pasa, no se bloquea nada. */
+  availability?: OccurrenceAvailability
 }
 
-export default function TaskCard({ occurrence, task, onComplete, onUncomplete, onReassign }: Props) {
+export default function TaskCard({ occurrence, task, onComplete, onUncomplete, onReassign, availability }: Props) {
   const [swapping, setSwapping] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
   const room = ROOMS[task.room] ?? { name: task.room, emoji: '🏷️' }
   const person = PEOPLE_INFO[occurrence.assignedTo]
   const isDone = occurrence.status === 'done'
   const isMissed = occurrence.status === 'missed'
+  const isLocked = !isDone && (isMissed || (availability ? !availability.ok : false))
+
+  const lockTitle = isMissed
+    ? task.frequency === 'daily'
+      ? 'Diaria perdida: caducó a las 10:00 del día siguiente.'
+      : 'Perdida: el plazo para hacerla ya terminó.'
+    : availability?.reason === 'too-early'
+      ? `Aún no toca. Se puede marcar desde el ${availability.window.earliestDate}.`
+      : availability?.reason === 'expired'
+        ? `Caducada. El plazo terminaba el ${availability.window.latestDate}.`
+        : undefined
+
+  async function handleToggle() {
+    if (isDone) {
+      onUncomplete(occurrence.id)
+      return
+    }
+    if (isLocked) return
+    setErr(null)
+    try {
+      await onComplete(occurrence.id)
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'No se pudo marcar como hecha.')
+    }
+  }
 
   return (
     <div
@@ -28,12 +58,19 @@ export default function TaskCard({ occurrence, task, onComplete, onUncomplete, o
       }}
     >
       <button
-        aria-label={isDone ? 'Marcar como pendiente' : 'Marcar como hecha'}
-        onClick={() => (isDone ? onUncomplete(occurrence.id) : onComplete(occurrence.id))}
-        className="mt-0.5 w-6 h-6 rounded-full border-2 flex items-center justify-center shrink-0 active:scale-90 transition"
-        style={{ borderColor: isDone ? 'var(--color-accent)' : person.color, background: isDone ? 'var(--color-accent)' : 'transparent' }}
+        aria-label={isDone ? 'Marcar como pendiente' : isLocked ? 'No disponible' : 'Marcar como hecha'}
+        onClick={handleToggle}
+        disabled={isLocked}
+        title={lockTitle}
+        className="mt-0.5 w-6 h-6 rounded-full border-2 flex items-center justify-center shrink-0 active:scale-90 transition disabled:active:scale-100 disabled:cursor-not-allowed"
+        style={{
+          borderColor: isDone ? 'var(--color-accent)' : isLocked ? 'var(--color-border)' : person.color,
+          background: isDone ? 'var(--color-accent)' : 'transparent',
+          opacity: isLocked ? 0.55 : 1,
+        }}
       >
         {isDone && <span className="text-[11px] text-black font-bold">✓</span>}
+        {!isDone && isLocked && <span className="text-[9px]">{isMissed ? '✕' : '⏳'}</span>}
       </button>
 
       <div className="flex-1 min-w-0">
@@ -43,7 +80,7 @@ export default function TaskCard({ occurrence, task, onComplete, onUncomplete, o
           <span className="text-[11px] text-[color:var(--color-text-dim)]">· {task.room}</span>
         </div>
         {task.detail && <p className="text-xs text-[color:var(--color-text-dim)] mt-0.5">{task.detail}</p>}
-        <div className="flex items-center gap-2 mt-1.5">
+        <div className="flex items-center gap-2 mt-1.5 flex-wrap">
           <span
             className="inline-flex items-center gap-1 text-[11px] px-1.5 py-0.5 rounded-full"
             style={{ background: 'var(--color-surface-2)', color: person.color }}
@@ -51,11 +88,21 @@ export default function TaskCard({ occurrence, task, onComplete, onUncomplete, o
             ● {person.name}
           </span>
           <span className="text-[11px] text-[color:var(--color-text-dim)]">{task.minutes} min</span>
-          {isMissed && <span className="text-[11px] font-medium" style={{ color: 'var(--color-danger)' }}>Se pasó</span>}
+          {availability?.onVacation && !isDone && (
+            <span className="text-[11px]" style={{ color: 'var(--color-text-dim)' }}>🌴 en vacaciones</span>
+          )}
+          {isMissed && <span className="text-[11px] font-medium" style={{ color: 'var(--color-danger)' }}>Perdida</span>}
+          {!isMissed && !isDone && availability?.reason === 'too-early' && (
+            <span className="text-[11px]" style={{ color: 'var(--color-text-dim)' }}>⏳ desde {availability.window.earliestDate}</span>
+          )}
+          {!isMissed && !isDone && availability && availability.ok && availability.window.lateFlexDays > 0 && (
+            <span className="text-[11px]" style={{ color: 'var(--color-text-dim)' }}>hasta {availability.window.latestDate}</span>
+          )}
           {isDone && occurrence.points > 0 && (
             <span className="text-[11px] font-medium" style={{ color: 'var(--color-accent)' }}>+{occurrence.points} pts</span>
           )}
         </div>
+        {err && <p className="text-[11px] mt-1" style={{ color: 'var(--color-danger)' }}>⚠️ {err}</p>}
       </div>
 
       <div className="relative shrink-0">

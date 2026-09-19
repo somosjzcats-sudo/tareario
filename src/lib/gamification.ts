@@ -181,6 +181,55 @@ export function computeBadWeekStreak(occurrences: Occurrence[], tasksById: Map<s
   return Math.min(streak, MAX_BAD_STREAK)
 }
 
+// ---------------- Análisis de tareas perdidas ----------------
+
+export interface MissedBreakdown {
+  total: number
+  daily: number
+  weekly: number
+  monthly: number
+}
+
+/** Desglose de tareas perdidas por frecuencia, para poder analizar si el
+ * problema son las diarias (más exigentes, sin margen) o más bien las
+ * semanales/mensuales. */
+export function computeMissedBreakdown(occurrences: Occurrence[], tasksById: Map<string, TaskDef>, person: PersonId): MissedBreakdown {
+  const missed = occurrences.filter((o) => o.assignedTo === person && o.status === 'missed')
+  const result: MissedBreakdown = { total: missed.length, daily: 0, weekly: 0, monthly: 0 }
+  for (const o of missed) {
+    const freq = tasksById.get(o.taskId)?.frequency
+    if (freq === 'daily') result.daily += 1
+    else if (freq === 'weekly') result.weekly += 1
+    else if (freq === 'monthly') result.monthly += 1
+  }
+  return result
+}
+
+export interface MissedItem {
+  occurrenceId: string
+  title: string
+  room: string
+  date: string
+}
+
+/** Últimas tareas perdidas (más recientes primero), para revisar el detalle
+ * en vez de solo el número total. */
+export function recentMissed(
+  occurrences: Occurrence[],
+  tasksById: Map<string, TaskDef>,
+  person: PersonId,
+  limit = 8,
+): MissedItem[] {
+  return occurrences
+    .filter((o) => o.assignedTo === person && o.status === 'missed')
+    .sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0))
+    .slice(0, limit)
+    .map((o) => {
+      const t = tasksById.get(o.taskId)
+      return { occurrenceId: o.id, title: t?.title ?? '(tarea eliminada)', room: t?.room ?? '', date: o.date }
+    })
+}
+
 export interface WeeklyTargetInfo {
   share: Record<PersonId, number> // suma 1
   badStreak: Record<PersonId, number>

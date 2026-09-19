@@ -1,5 +1,6 @@
 import { supabase, supabaseConfigured } from './supabase'
 import type { Occurrence, TaskDef } from './types'
+import type { VacationRange } from './availability'
 import { TASKS as SEED_TASKS } from '../data/tasks'
 
 export interface Store {
@@ -10,12 +11,15 @@ export interface Store {
   insertOccurrences(occs: Occurrence[]): Promise<void>
   updateOccurrence(id: string, patch: Partial<Occurrence>): Promise<void>
   deleteOccurrences(ids: string[]): Promise<void>
+  getVacations(): Promise<VacationRange[]>
+  saveVacations(vacations: VacationRange[]): Promise<void>
 }
 
 // ---------------- LocalStorage (modo demo / sin Supabase configurado) ----------------
 
 const LS_TASKS = 'tareario:tasks'
 const LS_OCC = 'tareario:occurrences'
+const LS_VACATIONS = 'tareario:vacations'
 
 function readLS<T>(key: string, fallback: T): T {
   try {
@@ -67,6 +71,12 @@ class LocalStore implements Store {
     const current = readLS<Occurrence[]>(LS_OCC, [])
     const idSet = new Set(ids)
     writeLS(LS_OCC, current.filter((o) => !idSet.has(o.id)))
+  }
+  async getVacations() {
+    return readLS<VacationRange[]>(LS_VACATIONS, [])
+  }
+  async saveVacations(vacations: VacationRange[]) {
+    writeLS(LS_VACATIONS, vacations)
   }
 }
 
@@ -173,12 +183,22 @@ class SupabaseStore implements Store {
     if (patch.completedBy !== undefined) dbPatch.completed_by = patch.completedBy
     if (patch.completedAt !== undefined) dbPatch.completed_at = patch.completedAt
     if (patch.points !== undefined) dbPatch.points = patch.points
+    if (patch.date !== undefined) dbPatch.date = patch.date
     const { error } = await supabase.from('occurrences').update(dbPatch).eq('id', id)
     if (error) throw error
   }
   async deleteOccurrences(ids: string[]) {
     if (ids.length === 0) return
     const { error } = await supabase.from('occurrences').delete().in('id', ids)
+    if (error) throw error
+  }
+  async getVacations(): Promise<VacationRange[]> {
+    const { data, error } = await supabase.from('app_config').select('value').eq('key', 'vacations').maybeSingle()
+    if (error) throw error
+    return (data?.value as VacationRange[] | undefined) ?? []
+  }
+  async saveVacations(vacations: VacationRange[]) {
+    const { error } = await supabase.from('app_config').upsert({ key: 'vacations', value: vacations })
     if (error) throw error
   }
 }

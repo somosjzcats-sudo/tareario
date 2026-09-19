@@ -6,7 +6,7 @@ import { PEOPLE_INFO, useProfile } from '../context/ProfileContext'
 import TaskCard from './TaskCard'
 
 export default function WeekView() {
-  const { occurrences, tasksById, completeOccurrence, uncompleteOccurrence, reassignOccurrence } = useData()
+  const { occurrences, tasksById, availabilityById, completeOccurrence, uncompleteOccurrence, reassignOccurrence } = useData()
   const { me } = useProfile()
   const [weekOffset, setWeekOffset] = useState(0)
   const [openDay, setOpenDay] = useState<string | null>(format(new Date(), 'yyyy-MM-dd'))
@@ -80,6 +80,7 @@ export default function WeekView() {
                           key={o.id}
                           occurrence={o}
                           task={t}
+                          availability={availabilityById.get(o.id)}
                           onComplete={(id) => completeOccurrence(id, me ?? o.assignedTo)}
                           onUncomplete={uncompleteOccurrence}
                           onReassign={reassignOccurrence}

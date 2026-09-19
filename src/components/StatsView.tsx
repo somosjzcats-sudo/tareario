@@ -3,7 +3,7 @@ import { es } from 'date-fns/locale'
 import { useMemo } from 'react'
 import { Bar, BarChart, CartesianGrid, Cell, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { useData, todayStr } from '../context/DataContext'
-import { badgesFor, computeStats, currentWeekMinutes } from '../lib/gamification'
+import { badgesFor, computeMissedBreakdown, computeStats, currentWeekMinutes, recentMissed } from '../lib/gamification'
 import { PEOPLE_INFO } from '../context/ProfileContext'
 import type { PersonId } from '../lib/types'
 
@@ -14,6 +14,15 @@ export default function StatsView() {
   const today = todayStr()
 
   const stats = useMemo(() => PEOPLE.map((p) => computeStats(occurrences, tasksById, p, today)), [occurrences, tasksById, today])
+
+  const missedBreakdown = useMemo(
+    () => Object.fromEntries(PEOPLE.map((p) => [p, computeMissedBreakdown(occurrences, tasksById, p)])) as Record<PersonId, ReturnType<typeof computeMissedBreakdown>>,
+    [occurrences, tasksById],
+  )
+  const recentMissedByPerson = useMemo(
+    () => Object.fromEntries(PEOPLE.map((p) => [p, recentMissed(occurrences, tasksById, p, 6)])) as Record<PersonId, ReturnType<typeof recentMissed>>,
+    [occurrences, tasksById],
+  )
 
   const weekMinutes = useMemo(() => currentWeekMinutes(occurrences, tasksById, today), [occurrences, tasksById, today])
   const weekTotal = weekMinutes.zaira + weekMinutes.jef
@@ -101,6 +110,41 @@ export default function StatsView() {
               (menos del 75% de tareas completadas a tiempo): como penalización, le toca algo más de carga la próxima semana, hasta que recupere el ritmo.
             </div>
           )}
+        </div>
+      </section>
+
+      <section className="mb-6">
+        <h2 className="text-sm font-semibold text-[color:var(--color-text-dim)] uppercase tracking-wide mb-2">Tareas perdidas: análisis</h2>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          {PEOPLE.map((p) => {
+            const b = missedBreakdown[p]
+            const recent = recentMissedByPerson[p]
+            const p_ = PEOPLE_INFO[p]
+            return (
+              <div key={p} className="rounded-xl border p-3" style={{ background: 'var(--color-surface)', borderColor: 'var(--color-border)' }}>
+                <p className="text-xs font-semibold mb-2" style={{ color: p_.color }}>{p_.name} · {b.total} perdida{b.total === 1 ? '' : 's'} en total</p>
+                {b.total > 0 ? (
+                  <div className="flex gap-3 mb-2 text-[11px] text-[color:var(--color-text-dim)]">
+                    <span>🔁 diarias: {b.daily}</span>
+                    <span>📅 semanales: {b.weekly}</span>
+                    <span>🗓️ mensuales: {b.monthly}</span>
+                  </div>
+                ) : (
+                  <p className="text-[11px] text-[color:var(--color-text-dim)] mb-2">Ninguna perdida. 🎉</p>
+                )}
+                {recent.length > 0 && (
+                  <ul className="flex flex-col gap-1">
+                    {recent.map((m) => (
+                      <li key={m.occurrenceId} className="text-[11px] text-[color:var(--color-text-dim)] flex items-center justify-between gap-2">
+                        <span className="truncate">{m.title}{m.room ? ` · ${m.room}` : ''}</span>
+                        <span className="shrink-0">{m.date}</span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )
+          })}
         </div>
       </section>
 

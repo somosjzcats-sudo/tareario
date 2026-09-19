@@ -7,7 +7,7 @@ import TaskCard from './TaskCard'
 import type { PersonId } from '../lib/types'
 
 export default function TodayView() {
-  const { occurrences, tasksById, completeOccurrence, uncompleteOccurrence, reassignOccurrence, loading } = useData()
+  const { occurrences, tasksById, availabilityById, completeOccurrence, uncompleteOccurrence, reassignOccurrence, loading } = useData()
   const { me } = useProfile()
   const today = todayStr()
 
@@ -69,6 +69,7 @@ export default function TodayView() {
                 key={o.id}
                 occurrence={o}
                 task={t}
+                availability={availabilityById.get(o.id)}
                 onComplete={(id) => completeOccurrence(id, me ?? o.assignedTo)}
                 onUncomplete={uncompleteOccurrence}
                 onReassign={reassignOccurrence}
@@ -92,6 +93,7 @@ export default function TodayView() {
                 key={o.id}
                 occurrence={o}
                 task={t}
+                availability={availabilityById.get(o.id)}
                 onComplete={(id) => completeOccurrence(id, me ?? o.assignedTo)}
                 onUncomplete={uncompleteOccurrence}
                 onReassign={reassignOccurrence}

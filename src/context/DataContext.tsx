@@ -1,5 +1,15 @@
 import { addDays, format, subDays } from 'date-fns'
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
+import {
+  buildDateIndex,
+  canCompleteNow,
+  computeOccurrenceWindow,
+  computeRedistribution,
+  isDateInVacation,
+  neighborDatesFromIndex,
+  type OccurrenceWindow,
+  type VacationRange,
+} from '../lib/availability'
 import { computeStats, computeWeeklyTargetShare, pointsForOccurrence, type WeeklyTargetInfo } from '../lib/gamification'
 import { generateOccurrences } from '../lib/schedule'
 import { store } from '../lib/store'
@@ -14,6 +24,13 @@ function todayStr() {
   return format(new Date(), 'yyyy-MM-dd')
 }
 
+export interface OccurrenceAvailability {
+  ok: boolean
+  reason?: 'too-early' | 'expired'
+  window: OccurrenceWindow
+  onVacation: boolean
+}
+
 interface DataCtx {
   loading: boolean
   error: string | null
@@ -21,6 +38,8 @@ interface DataCtx {
   tasks: TaskDef[]
   tasksById: Map<string, TaskDef>
   occurrences: Occurrence[]
+  vacations: VacationRange[]
+  availabilityById: Map<string, OccurrenceAvailability>
   weeklyTarget: WeeklyTargetInfo
   refresh: () => Promise<void>
   completeOccurrence: (id: string, by: PersonId) => Promise<void>
@@ -30,6 +49,8 @@ interface DataCtx {
   upsertTask: (task: TaskDef) => Promise<void>
   deleteTask: (id: string) => Promise<void>
   regenerateFuture: () => Promise<void>
+  addVacation: (v: VacationRange) => Promise<void>
+  removeVacation: (id: string) => Promise<void>
 }
 
 const Ctx = createContext<DataCtx | null>(null)
@@ -38,6 +59,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
   const { requiresLogin, session, loading: authLoading } = useAuth()
   const [tasks, setTasks] = useState<TaskDef[]>([])
   const [occurrences, setOccurrences] = useState<Occurrence[]>([])
+  const [vacations, setVacations] = useState<VacationRange[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -48,52 +70,89 @@ export function DataProvider({ children }: { children: ReactNode }) {
     [occurrences, tasksById],
   )
 
-  const runMaintenance = useCallback(async (currentTasks: TaskDef[], currentOccs: Occurrence[]) => {
-    const today = todayStr()
-    // 1. Marcar como perdidas las pendientes de días ya pasados
-    const toMiss = currentOccs.filter((o) => o.status === 'pending' && o.date < today)
-    for (const o of toMiss) {
-      await store.updateOccurrence(o.id, { status: 'missed' })
-      o.status = 'missed'
+  // Disponibilidad (ventana de holgura) de cada ocurrencia, calculada una
+  // vez para toda la lista y consumida tanto por completeOccurrence como por
+  // la UI (checkboxes bloqueados/etiquetas de "disponible desde…").
+  const availabilityById = useMemo(() => {
+    const map = new Map<string, OccurrenceAvailability>()
+    const dateIndex = buildDateIndex(occurrences)
+    const now = new Date()
+    for (const o of occurrences) {
+      const task = tasksById.get(o.taskId)
+      if (!task) continue
+      const neighbors = neighborDatesFromIndex(dateIndex, o.taskId, o.date)
+      const window = computeOccurrenceWindow(task, o.date, neighbors)
+      const check = canCompleteNow(task, o.date, window, vacations, now)
+      map.set(o.id, { ok: check.ok, reason: check.reason, window, onVacation: isDateInVacation(o.date, vacations) })
     }
+    return map
+  }, [occurrences, tasksById, vacations])
 
-    // 2. Generar ocurrencias que falten en la ventana [hoy-3, hoy+42]
-    const start = subDays(new Date(), WINDOW_BACK_DAYS)
-    const end = addDays(new Date(), WINDOW_FWD_DAYS)
-    const existingKeys = new Set(currentOccs.map((o) => o.id))
+  const runMaintenance = useCallback(
+    async (currentTasks: TaskDef[], currentOccs: Occurrence[], currentVacations: VacationRange[]) => {
+      const now = new Date()
+      const tasksByIdLocal = new Map(currentTasks.map((t) => [t.id, t]))
 
-    // Objetivo de reparto semanal (50/50 salvo penalización por semanas
-    // flojas seguidas) para que el balance se juzgue por minutos/semana y no
-    // día a día.
-    const tasksByIdLocal = new Map(currentTasks.map((t) => [t.id, t]))
-    const { share: targetShare } = computeWeeklyTargetShare(currentOccs, tasksByIdLocal, today)
+      // 1. Marcar como perdidas las pendientes cuya ventana de disponibilidad
+      //    ya ha caducado (diarias: a las 10:00 del día siguiente; semanales/
+      //    mensuales: según su holgura respecto a la ocurrencia vecina).
+      //    Las que caen en un periodo de vacaciones nunca caducan.
+      const dateIndex = buildDateIndex(currentOccs)
+      const toMiss: Occurrence[] = []
+      for (const o of currentOccs) {
+        if (o.status !== 'pending') continue
+        const task = tasksByIdLocal.get(o.taskId)
+        if (!task) continue
+        if (isDateInVacation(o.date, currentVacations)) continue
+        const neighbors = neighborDatesFromIndex(dateIndex, o.taskId, o.date)
+        const window = computeOccurrenceWindow(task, o.date, neighbors)
+        if (now >= window.expiresAt) toMiss.push(o)
+      }
+      for (const o of toMiss) {
+        await store.updateOccurrence(o.id, { status: 'missed' })
+        o.status = 'missed'
+      }
 
-    const draft = generateOccurrences(currentTasks, { start, end, existingKeys, targetShare })
-    if (draft.length === 0) return currentOccs
+      // 2. Generar ocurrencias que falten en la ventana [hoy-3, hoy+42]
+      const today = todayStr()
+      const start = subDays(new Date(), WINDOW_BACK_DAYS)
+      const end = addDays(new Date(), WINDOW_FWD_DAYS)
+      const existingKeys = new Set(currentOccs.map((o) => o.id))
 
-    const nowIso = new Date().toISOString()
-    const newOccs: Occurrence[] = draft.map((d) => ({
-      id: d.id,
-      taskId: d.taskId,
-      date: d.date,
-      assignedTo: d.assignedTo,
-      status: 'pending',
-      completedBy: null,
-      completedAt: null,
-      points: 0,
-      createdAt: nowIso,
-    }))
-    await store.insertOccurrences(newOccs)
-    return [...currentOccs, ...newOccs]
-  }, [])
+      // Objetivo de reparto semanal (50/50 salvo penalización por semanas
+      // flojas seguidas) para que el balance se juzgue por minutos/semana y no
+      // día a día.
+      const { share: targetShare } = computeWeeklyTargetShare(currentOccs, tasksByIdLocal, today)
+
+      const draft = generateOccurrences(currentTasks, { start, end, existingKeys, targetShare })
+      if (draft.length === 0) return currentOccs
+
+      const nowIso = new Date().toISOString()
+      const newOccs: Occurrence[] = draft.map((d) => ({
+        id: d.id,
+        taskId: d.taskId,
+        date: d.date,
+        assignedTo: d.assignedTo,
+        status: 'pending',
+        completedBy: null,
+        completedAt: null,
+        points: 0,
+        createdAt: nowIso,
+      }))
+      await store.insertOccurrences(newOccs)
+      return [...currentOccs, ...newOccs]
+    },
+    [],
+  )
 
   const refresh = useCallback(async () => {
     setLoading(true)
     setError(null)
     try {
-      const [t, o] = await Promise.all([store.getTasks(), store.getOccurrences()])
-      const finalOccs = await runMaintenance(t, o)
+      const [t, o, v] = await Promise.all([store.getTasks(), store.getOccurrences(), store.getVacations()])
+      const finalOccs = await runMaintenance(t, o, v)
       setTasks(t)
+      setVacations(v)
       setOccurrences([...finalOccs].sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0)))
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Error desconocido cargando datos')
@@ -120,13 +179,50 @@ export function DataProvider({ children }: { children: ReactNode }) {
       const occ = occurrences.find((o) => o.id === id)
       if (!occ) return
       const task = tasksById.get(occ.taskId)
+      if (!task) return
+
+      if (occ.status === 'missed') {
+        throw new Error(
+          task.frequency === 'daily'
+            ? 'Esta tarea diaria ya caducó: las diarias se pierden si no se marcan antes de las 10:00 del día siguiente.'
+            : 'Esta tarea ya caducó y se dio por perdida.',
+        )
+      }
+      const avail = availabilityById.get(id)
+      if (avail && !avail.ok) {
+        if (task.frequency === 'daily') {
+          throw new Error('Esta tarea diaria ya caducó: las diarias se pierden si no se marcan antes de las 10:00 del día siguiente.')
+        }
+        if (avail.reason === 'too-early') {
+          throw new Error(`Todavía no toca: esta tarea se puede marcar a partir del ${avail.window.earliestDate}.`)
+        }
+        throw new Error(`Esta tarea ya caducó: el plazo terminaba el ${avail.window.latestDate}.`)
+      }
+
       const stats = computeStats(occurrences, tasksById, occ.assignedTo, todayStr())
-      const points = pointsForOccurrence(task?.minutes ?? 5, occ.date, stats.currentStreak)
+      const points = pointsForOccurrence(task.minutes, occ.date, stats.currentStreak)
       const patch = { status: 'done' as const, completedBy: by, completedAt: new Date().toISOString(), points }
       await store.updateOccurrence(id, patch)
       setOccurrences((prev) => prev.map((o) => (o.id === id ? { ...o, ...patch } : o)))
+
+      // Si se ha completado tarde (fuera de su día original), intentamos
+      // correr un poco la siguiente ocurrencia de la misma tarea, para que el
+      // ritmo real no se comprima y siga sin poder solaparse con la de
+      // después. Es un ajuste de un solo paso, no en cadena.
+      const today = todayStr()
+      if (today > occ.date && task.frequency !== 'daily') {
+        const future = occurrences
+          .filter((o) => o.taskId === occ.taskId && o.date > occ.date && o.status === 'pending')
+          .sort((a, b) => (a.date < b.date ? -1 : 1))
+          .map((o) => ({ id: o.id, date: o.date }))
+        const redis = computeRedistribution(task, occ.date, today, future)
+        if (redis) {
+          await store.updateOccurrence(redis.id, { date: redis.date })
+          setOccurrences((prev) => prev.map((o) => (o.id === redis.id ? { ...o, date: redis.date } : o)))
+        }
+      }
     },
-    [occurrences, tasksById],
+    [occurrences, tasksById, availabilityById],
   )
 
   const uncompleteOccurrence = useCallback(async (id: string) => {
@@ -175,6 +271,34 @@ export function DataProvider({ children }: { children: ReactNode }) {
     [regenerateFuture],
   )
 
+  const addVacation = useCallback(
+    async (v: VacationRange) => {
+      const next = [...vacations, v].sort((a, b) => (a.start < b.start ? -1 : 1))
+      await store.saveVacations(next)
+      setVacations(next)
+      // Las que ya se habían dado por perdidas dentro de este rango se
+      // devuelven a pendientes: no penalizan durante el viaje.
+      const toRevert = occurrences.filter((o) => o.status === 'missed' && isDateInVacation(o.date, next))
+      for (const o of toRevert) {
+        await store.updateOccurrence(o.id, { status: 'pending' })
+      }
+      if (toRevert.length > 0) {
+        const revertIds = new Set(toRevert.map((o) => o.id))
+        setOccurrences((prev) => prev.map((o) => (revertIds.has(o.id) ? { ...o, status: 'pending' as const } : o)))
+      }
+    },
+    [vacations, occurrences],
+  )
+
+  const removeVacation = useCallback(
+    async (id: string) => {
+      const next = vacations.filter((v) => v.id !== id)
+      await store.saveVacations(next)
+      setVacations(next)
+    },
+    [vacations],
+  )
+
   const value: DataCtx = {
     loading,
     error,
@@ -182,6 +306,8 @@ export function DataProvider({ children }: { children: ReactNode }) {
     tasks,
     tasksById,
     occurrences,
+    vacations,
+    availabilityById,
     weeklyTarget,
     refresh,
     completeOccurrence,
@@ -191,6 +317,8 @@ export function DataProvider({ children }: { children: ReactNode }) {
     upsertTask,
     deleteTask,
     regenerateFuture,
+    addVacation,
+    removeVacation,
   }
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>

@@ -37,8 +37,12 @@ function FreqBadge({ frequency }: { frequency: TaskDef['frequency'] }) {
   )
 }
 
+function newVacationId(): string {
+  return `vac-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`
+}
+
 export default function SettingsView() {
-  const { tasks, upsertTask, deleteTask, regenerateFuture, demoMode } = useData()
+  const { tasks, upsertTask, deleteTask, regenerateFuture, demoMode, vacations, addVacation, removeVacation } = useData()
   const { me, setMe, canSwitch } = useProfile()
   const { requiresLogin, session, signOut } = useAuth()
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -50,6 +54,11 @@ export default function SettingsView() {
   const [filterFreq, setFilterFreq] = useState<FreqFilter>('all')
   const [filterActiveState, setFilterActiveState] = useState<ActiveFilter>('all')
   const [filterText, setFilterText] = useState('')
+  const [vacStart, setVacStart] = useState('')
+  const [vacEnd, setVacEnd] = useState('')
+  const [vacLabel, setVacLabel] = useState('')
+  const [vacError, setVacError] = useState<string | null>(null)
+  const [vacBusy, setVacBusy] = useState(false)
 
   const knownRooms = useMemo(() => [...new Set(tasks.map((t) => t.room))], [tasks])
 
@@ -138,6 +147,41 @@ export default function SettingsView() {
     }
   }
 
+  async function handleAddVacation() {
+    setVacError(null)
+    if (!vacStart || !vacEnd) {
+      setVacError('Indica fecha de inicio y de fin.')
+      return
+    }
+    if (vacEnd < vacStart) {
+      setVacError('La fecha de fin no puede ser anterior a la de inicio.')
+      return
+    }
+    setVacBusy(true)
+    try {
+      await addVacation({ id: newVacationId(), start: vacStart, end: vacEnd, label: vacLabel.trim() || undefined })
+      setVacStart('')
+      setVacEnd('')
+      setVacLabel('')
+    } catch (e) {
+      setVacError(e instanceof Error ? e.message : 'Error desconocido al guardar las vacaciones.')
+    } finally {
+      setVacBusy(false)
+    }
+  }
+
+  async function handleRemoveVacation(id: string) {
+    setVacBusy(true)
+    setVacError(null)
+    try {
+      await removeVacation(id)
+    } catch (e) {
+      setVacError(e instanceof Error ? e.message : 'Error desconocido al borrar las vacaciones.')
+    } finally {
+      setVacBusy(false)
+    }
+  }
+
   const totalMinutesDaily = tasks.filter((t) => t.active && t.frequency === 'daily').reduce((s, t) => s + t.minutes, 0)
 
   return (
@@ -211,6 +255,81 @@ export default function SettingsView() {
         <p className="text-xs text-[color:var(--color-text-dim)]">
           Carga diaria activa: <strong className="text-[color:var(--color-text)]">{totalMinutesDaily} min/día</strong> combinados en tareas diarias (objetivo ≈ 60 min/día entre los dos, el resto lo reparten las tareas semanales/mensuales).
         </p>
+      </section>
+
+      <section className="mb-5 md:max-w-2xl">
+        <h2 className="text-sm font-semibold text-[color:var(--color-text-dim)] uppercase tracking-wide mb-2">🌴 Vacaciones / pausa</h2>
+        <p className="text-[11px] text-[color:var(--color-text-dim)] mb-2">
+          Mientras dure el rango, las tareas de esos días no cuentan como perdidas aunque no se hagan.
+        </p>
+
+        {vacations.length > 0 && (
+          <div className="flex flex-col gap-1.5 mb-2">
+            {vacations.map((v) => (
+              <div
+                key={v.id}
+                className="flex items-center justify-between gap-2 rounded-lg border px-3 py-2"
+                style={{ background: 'var(--color-surface)', borderColor: 'var(--color-border)' }}
+              >
+                <span className="text-xs">
+                  {v.start} → {v.end}
+                  {v.label && <span className="text-[color:var(--color-text-dim)]"> · {v.label}</span>}
+                </span>
+                <button
+                  onClick={() => handleRemoveVacation(v.id)}
+                  disabled={vacBusy}
+                  className="text-[11px] px-2 py-1 rounded-md shrink-0"
+                  style={{ background: 'var(--color-surface-2)', color: 'var(--color-danger)' }}
+                >
+                  Quitar
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <div className="flex flex-wrap items-end gap-2">
+          <label className="text-[11px] text-[color:var(--color-text-dim)] flex flex-col gap-1">
+            Inicio
+            <input
+              type="date"
+              value={vacStart}
+              onChange={(e) => setVacStart(e.target.value)}
+              className="rounded-lg px-2 py-1.5 text-sm text-[color:var(--color-text)]"
+              style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)' }}
+            />
+          </label>
+          <label className="text-[11px] text-[color:var(--color-text-dim)] flex flex-col gap-1">
+            Fin
+            <input
+              type="date"
+              value={vacEnd}
+              onChange={(e) => setVacEnd(e.target.value)}
+              className="rounded-lg px-2 py-1.5 text-sm text-[color:var(--color-text)]"
+              style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)' }}
+            />
+          </label>
+          <label className="text-[11px] text-[color:var(--color-text-dim)] flex flex-col gap-1 flex-1 min-w-[120px]">
+            Etiqueta (opcional)
+            <input
+              type="text"
+              value={vacLabel}
+              onChange={(e) => setVacLabel(e.target.value)}
+              placeholder="p.ej. Viaje a la playa"
+              className="rounded-lg px-2 py-1.5 text-sm text-[color:var(--color-text)]"
+              style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)' }}
+            />
+          </label>
+          <button
+            onClick={handleAddVacation}
+            disabled={vacBusy}
+            className="text-xs font-semibold px-3 py-2 rounded-lg shrink-0"
+            style={{ background: 'var(--color-accent)', color: '#0b1120' }}
+          >
+            + Añadir
+          </button>
+        </div>
+        {vacError && <p className="text-xs mt-1.5" style={{ color: 'var(--color-danger)' }}>{vacError}</p>}
       </section>
 
       {creating && (
